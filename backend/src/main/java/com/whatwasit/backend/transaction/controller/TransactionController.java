@@ -1,6 +1,7 @@
 package com.whatwasit.backend.transaction.controller;
 
 import com.whatwasit.backend.transaction.dto.TransactionDTO;
+import com.whatwasit.backend.transaction.entity.PaymentTransactionEntity;
 import com.whatwasit.backend.transaction.service.TransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,4 +23,12 @@ public class TransactionController {
 
         return ResponseEntity.ok(transactionId);
     }
+
+    @GetMapping("/{transactionId}")
+    public PaymentTransactionEntity getTransaction(
+            @PathVariable Long transactionId
+    ) {
+        return transactionService.getTransaction(transactionId);
+    }
+
 }

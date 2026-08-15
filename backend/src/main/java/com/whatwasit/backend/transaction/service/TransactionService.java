@@ -24,4 +24,14 @@ public class TransactionService {
 
     return savedEntity.getTransactionId();
     }
+
+    public PaymentTransactionEntity getTransaction(Long transactionId) {
+
+        return paymentTransactionRepository.findById(transactionId).orElseThrow(()->new IllegalArgumentException("거래내역을 찾을 수 없습니다."));
+
+
+    }
+
+
+
 }
