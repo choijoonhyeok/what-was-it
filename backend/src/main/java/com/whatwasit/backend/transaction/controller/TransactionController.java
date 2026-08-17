@@ -3,6 +3,7 @@ package com.whatwasit.backend.transaction.controller;
 import com.whatwasit.backend.transaction.dto.TransactionDTO;
 import com.whatwasit.backend.transaction.entity.PaymentTransactionEntity;
 import com.whatwasit.backend.transaction.service.TransactionService;
+import com.whatwasit.backend.analysis.candidate.dto.AiResponseDTO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +30,13 @@ public class TransactionController {
             @PathVariable Long transactionId
     ) {
         return transactionService.getTransaction(transactionId);
+    }
+
+    @GetMapping("/{transactionId}/analyze")
+    public AiResponseDTO analyzeTransaction(
+            @PathVariable Long transactionId
+    ){
+        return transactionService.analyzeTransaction(transactionId);
     }
 
 }
