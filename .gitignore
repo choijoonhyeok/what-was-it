@@ -1,0 +1,4 @@
+# Python AI Server
+ai-server/venv/
+ai-server/__pycache__/
+*.pyc
