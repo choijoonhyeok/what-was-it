@@ -1,48 +1,128 @@
 from fastapi import FastAPI
-from sentence_transformers import SentenceTransformer
-from sentence_transformers.util import cos_sim
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer, util
+import pymysql
+import re
 
 app = FastAPI()
 
+def normalize_merchant_name(name):
+
+    # 1. 앞뒤 공백 제거
+    name = name.strip()
+
+    # 2. 여러 개의 공백을 하나로 변경
+    name = re.sub(r"\s+", " ", name)
+
+    # 3. 일부 구분 기호를 공백으로 변경
+    name = re.sub(r"[-_/#]", " ", name)
+
+    # 4. 다시 연속된 공백 정리
+    name = re.sub(r"\s+", " ", name).strip()
+
+    return name
+
+# AI 모델
 model = SentenceTransformer("snunlp/KR-SBERT-V40K-klueNLI-augSTS")
 
-CANDIDATES = [
-    "문화누리카드",
-    "문화누리바우처",
-    "문화누리카드 온라인",
-    "NICEPAY",
-    "카카오페이",
-    "네이버페이",
-    "토스페이",
-    "스타벅스",
-    "CU",
-    "GS25"
+
+# DB 연결
+def get_connection():
+    return pymysql.connect(
+        host="localhost",
+        user="root",
+        password="1234",
+        database="what_was_it",
+        charset="utf8mb4"
+    )
+
+
+# DB에서 후보 가맹점 조회
+def get_candidates():
+
+    print("===== DB 조회 시작 =====")
+
+    connection = get_connection()
+
+    try:
+        with connection.cursor() as cursor:
+            sql = """
+                SELECT id, merchant_name, category, description
+                FROM merchant_candidate
+            """
+
+            cursor.execute(sql)
+            candidates = cursor.fetchall()
+
+            print("DB 후보 개수:", len(candidates))
+            print("DB 후보:", candidates)
+
+            return candidates
+
+        
+
+    finally:
+        connection.close()
+
+
+# 서버 시작 시 후보 데이터와 임베딩 생성
+candidates = get_candidates()
+
+candidate_names = [
+    candidate[1]
+    for candidate in candidates
 ]
 
+candidate_embeddings = model.encode(
+    candidate_names,
+    convert_to_tensor=True
+)
 
-@app.get("/ai/candidates")
-def get_candidates(merchant_name: str):
 
+
+# 요청 데이터 형식
+class MerchantRequest(BaseModel):
+    merchant_name: str
+
+
+# 결제 가맹점명 분석
+@app.post("/analyze")
+def analyze(request: MerchantRequest):
+
+    print("===== ANALYZE START =====")
+    print("입력값:", request.merchant_name)
+    
+
+
+    original_name = request.merchant_name
+
+    normalized_name = normalize_merchant_name(original_name)
+    print("전처리값:", normalized_name)
+
+    # 입력 문장 임베딩
     query_embedding = model.encode(
-        merchant_name,
+        normalized_name,
         convert_to_tensor=True
     )
 
-    candidate_embeddings = model.encode(
-        CANDIDATES,
-        convert_to_tensor=True
-    )
 
-    similarities = cos_sim(
+    # 의미 유사도 계산
+    similarities = util.cos_sim(
         query_embedding,
         candidate_embeddings
     )[0]
 
+    # 점수 순으로 정렬
     results = []
 
-    for candidate, score in zip(CANDIDATES, similarities):
+    for index, score in enumerate(similarities):
+        candidate = candidates[index]
+
         results.append({
-            "name": candidate,
+            "id": candidate[0],
+            "name": candidate[1],
+            "category": candidate[2],
+            "description": candidate[3],
             "score": float(score)
         })
 
@@ -52,6 +132,6 @@ def get_candidates(merchant_name: str):
     )
 
     return {
-        "originalName": merchant_name,
+        "originalName": original_name,
         "candidates": results[:3]
     }
