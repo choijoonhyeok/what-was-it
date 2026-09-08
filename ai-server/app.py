@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, util
 import pymysql
 import re
+import requests
+import os
 
 app = FastAPI()
 
@@ -21,6 +23,61 @@ def normalize_merchant_name(name):
     name = re.sub(r"\s+", " ", name).strip()
 
     return name
+
+def search_naver(merchant_name):
+    client_id = os.getenv("NCP_APIGW_API_KEY_ID")
+    client_secret = os.getenv("NCP_APIGW_API_KEY")
+
+    print("현재 Python:", os.sys.executable)
+    print("NCP_APIGW_API_KEY_ID:", client_id)
+    print("NCP_APIGW_API_KEY 존재:", bool(client_secret))
+
+    url = "https://naverapihub.apigw.ntruss.com/search/v1/webkr"
+
+    headers = {
+       "X-NCP-APIGW-API-KEY-ID": client_id,
+       "X-NCP-APIGW-API-KEY": client_secret
+    }
+
+    params = {
+        "query": merchant_name,
+        "display": 5,
+        "start": 1,
+        "sort": "random",
+        "format": "json"
+    }
+
+    response = requests.get(
+        url,
+        headers=headers,
+        params=params
+        )
+
+    print("Naver status:", response.status_code)
+    print("Naver response:", response.text)
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    results = []
+
+    for item in data.get("items", []):
+        title = re.sub(r"<[^>]+>", "", item.get("title", ""))
+        description = re.sub(r"<[^>]+>", "", item.get("description", ""))
+
+        results.append({
+            "title": title,
+            "link": item.get("link", ""),
+            "description": description
+        })
+
+    results = sort_search_results(results)
+
+    return {
+        "merchantName": merchant_name,
+        "results": results
+    }
 
 # AI 모델
 model = SentenceTransformer("snunlp/KR-SBERT-V40K-klueNLI-augSTS")
@@ -135,3 +192,61 @@ def analyze(request: MerchantRequest):
         "originalName": original_name,
         "candidates": results[:3]
     }
+
+class SerachRequest(BaseModel):
+    merchant_name: str
+
+@app.post("/search")
+def search(request: SerachRequest):
+
+    merchant_name = normalize_merchant_name(request.merchant_name)
+
+    search_results = search_naver(merchant_name)
+
+    results = search_results["results"]
+
+    rag_context = create_rag_context(results)
+
+    return{
+        "merchantName": merchant_name,
+        "results": results,
+        "ragContext": rag_context
+    }
+
+def sort_search_results(results):
+    def get_score(result):
+        link = result.get("link", "").lower()
+
+        # 신뢰도가 낮은 정보 사이트는 후순위
+
+        if "namu.wiki" in link:
+            return 4
+
+        if "wikipedia.org" in link:
+            return 4
+
+        # 앱스토어는 공식 서비스 정보 확인에 유용
+        if "play.google.com" in link:
+            return 2
+
+        if "apps.apple.com" in link:
+            return 2
+
+        # 그 외 검색 결과
+        return 1
+
+
+    return sorted(results, key=get_score)
+
+def create_rag_context(results):
+    context = []
+
+    for i, result in enumerate(results, start=1):
+        context.append(
+            f"[근거 {i}]\n"
+            f"제목: {result['title']}\n"
+            f"설명: {result['description']}\n"
+            f"출처: {result['link']}"
+        )
+
+    return "\n\n".join(context)
