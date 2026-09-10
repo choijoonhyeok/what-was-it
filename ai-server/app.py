@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, util
@@ -5,6 +6,8 @@ import pymysql
 import re
 import requests
 import os
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -149,21 +152,18 @@ def analyze(request: MerchantRequest):
     print("===== ANALYZE START =====")
     print("입력값:", request.merchant_name)
     
-
-
     original_name = request.merchant_name
-
     normalized_name = normalize_merchant_name(original_name)
+
     print("전처리값:", normalized_name)
 
-    # 입력 문장 임베딩
+    # 1. 입력값 임베딩
     query_embedding = model.encode(
         normalized_name,
         convert_to_tensor=True
     )
 
-
-    # 의미 유사도 계산
+    # 2. 후보 DB와 유사도 계산
     similarities = util.cos_sim(
         query_embedding,
         candidate_embeddings
@@ -183,14 +183,46 @@ def analyze(request: MerchantRequest):
             "score": float(score)
         })
 
+    # 3. 유사도 기준 Top 3
     results.sort(
         key=lambda x: x["score"],
         reverse=True
     )
 
+    top_candidates = results[:3]
+
+    print("===== TOP 3 후보 =====")
+    for candidate in top_candidates:
+        print(
+            candidate["name"],
+            candidate["score"]
+        )
+     # 4. Top 3 후보 각각 네이버 검색
+    candidate_evidences = []
+
+    for candidate in top_candidates:
+
+        search_results = search_naver(
+            candidate["name"]
+        )["results"]
+
+        rag_context = create_rag_context(
+            search_results
+        )
+
+        candidate_evidences.append({
+            "candidate": candidate,
+            "searchResults": search_results,
+            "ragContext": rag_context
+        })
+
+
+
     return {
         "originalName": original_name,
-        "candidates": results[:3]
+        "normalizedName": normalized_name,
+        "candidates": candidate_evidences
+        
     }
 
 class SerachRequest(BaseModel):
