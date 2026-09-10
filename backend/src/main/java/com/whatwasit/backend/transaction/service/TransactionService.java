@@ -51,7 +51,11 @@ public class TransactionService {
 
                         );
 
-        AiResponseDTO aiResponse = aiClient.analyze(transaction);
+        AiResponseDTO aiResponse = aiClient.analyze(
+                transaction.getMerchantName(),
+                transaction.getAmount(),
+                transaction.getTransactionAt().toString()
+        );
 
         AnalysisEntity analysis = AnalysisEntity.builder()
                 .transaction(transaction)
